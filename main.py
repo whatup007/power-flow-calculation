@@ -17,7 +17,7 @@ from power_flow_nr import PowerFlowNR
 from result_printer import print_results, save_results_to_file
 
 
-def main(case_name='case4gs', save_to_file=False):
+def main(case_name='case4gs', save_to_file=False, use_sparse=False, outdir=None):
     """
     主函数
     
@@ -35,7 +35,7 @@ def main(case_name='case4gs', save_to_file=False):
         case_data = load_case(case_name)
         
         # 创建潮流计算对象
-        pf = PowerFlowNR(case_data)
+        pf = PowerFlowNR(case_data, use_sparse=use_sparse)
         
         # 求解潮流
         converged, iterations = pf.solve(verbose=True)
@@ -47,8 +47,18 @@ def main(case_name='case4gs', save_to_file=False):
         print_results(results)
         
         # 保存结果到文件
-        if save_to_file:
-            output_file = f"{case_name}_results.txt"
+        # 需求：使用稀疏矩阵加速时，结果保存在当前目录，命名为 <case_name>_sparse_result.txt
+        if use_sparse:
+            output_file = f"{case_name}_sparse_result.txt"
+            save_results_to_file(results, output_file)
+        elif save_to_file:
+            # 非稀疏：沿用原有保存逻辑，可选 outdir
+            target_dir = outdir
+            if target_dir:
+                os.makedirs(target_dir, exist_ok=True)
+                output_file = os.path.join(target_dir, f"{case_name}_results.txt")
+            else:
+                output_file = f"{case_name}_results.txt"
             save_results_to_file(results, output_file)
         
         return results
@@ -69,12 +79,19 @@ def main(case_name='case4gs', save_to_file=False):
         return None
 
 
-def run_all_cases():
-    """运行所有算例"""
+def run_all_cases(use_sparse=False):
+    """运行所有算例
+    
+    参数:
+        use_sparse: 是否使用稀疏矩阵
+    """
     cases = ['case4gs', 'case5', 'case30', 'case118', 'case2383wp']
     
     print("\n" + "="*84)
-    print("批量运行所有算例".center(74))
+    if use_sparse:
+        print("批量运行所有算例 (稀疏矩阵加速)".center(74))
+    else:
+        print("批量运行所有算例".center(74))
     print("="*84)
     
     results_summary = []
@@ -89,7 +106,7 @@ def run_all_cases():
             case_data = load_case(case_name)
             
             # 求解潮流
-            pf = PowerFlowNR(case_data)
+            pf = PowerFlowNR(case_data, use_sparse=use_sparse)
             converged, iterations = pf.solve(verbose=False)
             
             results_summary.append({
@@ -108,7 +125,11 @@ def run_all_cases():
             
             # 保存结果
             results = pf.get_results()
-            save_results_to_file(results, f"{case_name}_results.txt")
+            if use_sparse:
+                output_file = f"{case_name}_sparse_result.txt"
+            else:
+                output_file = f"{case_name}_results.txt"
+            save_results_to_file(results, output_file)
             
         except Exception as e:
             print(f"✗ {case_name} 计算失败: {e}")
@@ -140,18 +161,31 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         if sys.argv[1] == 'all':
             # 运行所有算例
-            run_all_cases()
+            args = sys.argv[2:]
+            use_sparse = ('--sparse' in args)
+            run_all_cases(use_sparse=use_sparse)
         else:
-            # 运行指定算例
+            # 运行指定算例并解析可选参数
             case_name = sys.argv[1]
-            save_file = '--save' in sys.argv or '-s' in sys.argv
-            main(case_name, save_to_file=save_file)
+            args = sys.argv[2:]
+            save_file = ('--save' in args) or ('-s' in args)
+            use_sparse = ('--sparse' in args)
+            # 解析输出目录
+            outdir = None
+            if '--outdir' in args:
+                idx = args.index('--outdir')
+                if idx + 1 < len(args):
+                    outdir = args[idx + 1]
+            main(case_name, save_to_file=save_file, use_sparse=use_sparse, outdir=outdir)
     else:
         # 默认运行case4gs算例
         print("\n使用方法:")
-        print("  python main.py <case_name>        # 计算指定算例")
-        print("  python main.py <case_name> --save # 计算并保存结果到文件")
-        print("  python main.py all                # 计算所有算例")
+        print("  python main.py <case_name>                           # 计算指定算例")
+        print("  python main.py <case_name> --sparse                  # 稀疏加速，并自动保存到当前目录为 <case_name>_sparse_result.txt")
+        print("  python main.py <case_name> --save                    # 非稀疏下保存结果到当前目录")
+        print("  python main.py <case_name> --save --outdir <path>    # 非稀疏下保存到指定目录")
+        print("  python main.py all                                    # 计算所有算例")
+        print("  python main.py all --sparse                          # 计算所有算例（使用稀疏矩阵加速）")
         print("\n可用算例: case4gs, case5, case30, case118, case2383wp")
         print("\n现在运行默认算例: case4gs\n")
         main('case4gs')
